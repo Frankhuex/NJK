@@ -1,0 +1,11 @@
+[project]
+name = "NJK"
+version = "0.1.0"
+dependencies = [
+    "imagehash>=4.3.2",
+    "openai>=2.12.0",
+    "pillow>=12.0.0",
+    "pymongo>=4.15.5",
+    "requests>=2.32.5",
+    "websockets>=15.0.1",
+]

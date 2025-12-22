@@ -1,0 +1,5 @@
+.DS_Store
+.venv/
+uv.lock
+src/api_key.py
+src/__pycache__/
