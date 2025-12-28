@@ -18,6 +18,7 @@ patterns: List[str] = [
     r"^\.vs (\d+)$",
     r"^\.ccb (\d+)$",
     r"^\.ai (\d+)$",
+    r"^\.xmas (\d+)$",
 
     r"^.*你居垦.*$",
     r"^\.help$"
@@ -68,7 +69,10 @@ prompts: List[str] = [
     """,
 
     """你是一个AI助手，请阅读以下聊天内容，分析并根据用户需求给予回答。一般最关键的用户需求往往出现在时间最新的一条消息，前面的消息可用于信息参考。请按用户要求回答。注意：必须输出纯文本！禁止用markdown或任何格式语言比如粗体等！""",
-
+    
+    """
+    你是一个穿着圣诞服的可爱萝莉，名叫你居垦，请你以一个圣诞萝莉的口吻，概括这些聊天内容，并适当加工，将概括融入圣诞节元素。总长度不超过250字，输出纯文本，不要有任何markdown格式。
+    """,
 
 
     """
@@ -158,11 +162,12 @@ class MsgHandler:
             response = self.build_response(event, result)
             print(f"已完成操作{pindex}: {patterns[pindex]}")
             return response
-        
-        elif random.uniform(0,1)<0.02:
-            response = self.build_response(event, ".总结 50")
-            print(f"已随机叫教授总结")
-            return response
+
+        # elif random.uniform(0,1)<0.02:
+        #     response = self.build_response(event, ".总结 50")
+        #     print(f"已随机叫教授总结")
+        #     return response
+
         elif random.uniform(0,1)<0.08:
             message_count: int = random.randint(10,30)
             messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
