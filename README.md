@@ -1,7 +1,7 @@
 # NJK使用方法
 ## 1. 启动Python WebSocket服务器（就是这里的代码）
-### 1.0 修改api_key.py
-在src创建api_key.py，根据实际情况定义三个变量api_key、base_url和model。
+### 1.0 修改环境变量
+在根目录创建.env，根据实际情况定义三个变量API_KEY, BASE_URL, MODEL_NAME。
 
 ### 1.1 方法一：用uv
 #### 1.1.1 装包：

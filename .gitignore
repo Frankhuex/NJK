@@ -2,5 +2,6 @@
 .venv/
 uv.lock
 src/api_key.py
-src/__pycache__/
+**/__pycache__/
 tests/
+.env
