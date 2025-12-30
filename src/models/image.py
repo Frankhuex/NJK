@@ -10,3 +10,7 @@ class Image(BaseModel):
 
     class Meta:
         table_name = "image"
+        indexes = (
+            (("message_id",), False),
+            (("image_hash",), False),
+        )

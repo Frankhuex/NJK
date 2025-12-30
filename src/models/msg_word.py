@@ -9,3 +9,8 @@ class MsgWord(BaseModel):
 
     class Meta:
         table_name = "msg_word"
+        indexes = (
+            (('message_id',),False),
+            (('word_id',),False),
+            (('message_id','word_id'),False),
+        )

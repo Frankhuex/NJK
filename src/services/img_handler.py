@@ -3,9 +3,9 @@ from typing import Any, Dict, List
 import requests
 from PIL import Image as PImage
 import imagehash
-from pymongo import collection
 from models.image import Image
 from models.message import Message
+from models.img_whitelist import ImgWhitelist
 
 # 对于64位哈希，距离<=5通常意味着高度相似。你可以根据需要调整（0-10是合理范围）。
 hamming_threshold = 5
@@ -76,7 +76,12 @@ class ImgHandler:
         # 前置条件检查
         if not all([image, image.image_hash, image.message, image.message.group]):
             return 0
-        
+
+        # 白名单检查 - 如果在白名单中，直接返回0
+        if self._is_in_whitelist(str(image.image_hash)):
+            print(f"忽略白名单内哈希: {image.image_hash}")
+            return 0
+
         # 生成器表达式 + sum
         return sum(
             1 for img in Image.select().join(Message).where(Message.group == image.message.group)
@@ -84,6 +89,17 @@ class ImgHandler:
             and img.image_hash
             and (lambda a, b: bin(int(a,16)^int(b,16)).count("1"))(str(image.image_hash), img.image_hash) <= threshold
         )
+
+    def _is_in_whitelist(self, image_hash: str) -> bool:
+        """检查图片哈希是否在白名单中"""
+        return ImgWhitelist.select().where(ImgWhitelist.image_hash == image_hash).exists()
+    
+    def download_and_phash(self, url: str) -> str|None:
+        """下载图片并计算感知哈希"""
+        image_data = self.download_image(url)
+        if not image_data:
+            return None
+        return self.calculate_phash(image_data)
 
 
 img_handler = ImgHandler()

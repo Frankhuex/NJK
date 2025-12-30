@@ -4,10 +4,10 @@ import json
 from websockets import serve
 from websockets.asyncio.server import ServerConnection
 from websockets.typing import Data
-from pymongo import MongoClient, database, collection
+# from pymongo import MongoClient, database, collection
 from typing import Any, List, Dict
-from services.msg_handler import MsgHandler
-from services.duplicate_detector import DuplicateDetector
+# from services.msg_handler import MsgHandler
+# from services.duplicate_detector import DuplicateDetector
 from configs.pgdb import pgdb
 from models.message import Message
 from models.user import User
@@ -18,13 +18,13 @@ import traceback
 # MongoDB
 group_list: List[int] = [897830548,979088841,1050660050,665074632,238872980,876274089]
 
-client: MongoClient = MongoClient("mongodb://localhost:27017")
-mongodb: database.Database = client["NJK"]
-collections: Dict[int, collection.Collection] = {}
-collections_img: Dict[int, collection.Collection] = {}
-for group_id in group_list:
-    collections[group_id] = mongodb[str(group_id)]
-    collections_img[group_id] = mongodb[f"hash_{group_id}"]
+# client: MongoClient = MongoClient("mongodb://localhost:27017")
+# mongodb: database.Database = client["NJK"]
+# collections: Dict[int, collection.Collection] = {}
+# collections_img: Dict[int, collection.Collection] = {}
+# for group_id in group_list:
+#     collections[group_id] = mongodb[str(group_id)]
+#     collections_img[group_id] = mongodb[f"hash_{group_id}"]
 
 
 
@@ -71,7 +71,7 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
         if event.get("post_type") == "message" and event.get("message_type") == "group":
             if event["group_id"] in group_list:
                 print(f"【处理LLM任务】 {client_address} - 消息ID: {event.get('message_id')}")
-                response: Dict[str,Any]|None = await msg_handler.handle_summary(event, collections[event["group_id"]])
+                response: Dict[str,Any]|None = await msg_handler.handle_summary(event)
                 if response: 
                     await websocket.send(json.dumps(response))
                     print(f"【发送LLM响应】 {client_address} - 消息ID: {event.get('message_id')}")
@@ -105,7 +105,7 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
         elif event.get("status")=="ok" and event.get("retcode")==0 and "data" in event and "message_id" in event["data"]:
             print(f"【处理自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
             self_response: Dict[str,Any] = await self_response_queue.get()
-            await save_self_msg(self_response, event, mongodb[str(self_response["params"]["group_id"])])
+            # await save_self_msg(self_response, event, mongodb[str(self_response["params"]["group_id"])])
             await save_self_msg_pg(self_response, event)
             print(f"【完成自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
             print(f"未存储的自己消息数：{self_response_queue.qsize()}")
@@ -114,22 +114,22 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
         print(traceback.format_exc())
 
 
-async def save_self_msg(response: Dict[str,Any], response_back: Dict[str,Any]|None, collection: collection.Collection) -> bool:
-    if not response_back:
-        print("响应消息为空，未存储自己消息")
-        return False
-    raw_message:str = response["params"]["message"]
-    new_message = {
-        "群友": "你居垦",
-        "群友id": 1558109748,
-        "发言": raw_message,
-        "消息id": response_back["data"]["message_id"],
-        "时间": response["time"]
-    }
-    collection.insert_one(new_message)
+# async def save_self_msg(response: Dict[str,Any], response_back: Dict[str,Any]|None, collection: collection.Collection) -> bool:
+#     if not response_back:
+#         print("响应消息为空，未存储自己消息")
+#         return False
+#     raw_message:str = response["params"]["message"]
+#     new_message = {
+#         "群友": "你居垦",
+#         "群友id": 1558109748,
+#         "发言": raw_message,
+#         "消息id": response_back["data"]["message_id"],
+#         "时间": response["time"]
+#     }
+#     collection.insert_one(new_message)
 
-    print("已存储自己消息到mongo")
-    return True
+#     print("已存储自己消息到mongo")
+#     return True
 
 
 async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]|None) -> bool:
@@ -152,7 +152,7 @@ async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]
 
 
 async def main():
-    async with serve(handle_websocket, "0.0.0.0", 8081):
+    async with serve(handle_websocket, "0.0.0.0", 11004):
         await asyncio.Future()
 
 if __name__ == "__main__":

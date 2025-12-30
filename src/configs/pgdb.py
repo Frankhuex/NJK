@@ -1,17 +1,21 @@
 from peewee import PostgresqlDatabase
 from peewee import Model
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 DB_CONFIG = {
-    "database": "njk2",
-    "host": "localhost",
-    "user": "postgres",
-    "password": "114514",
-    "port": 5432
+    "database": os.getenv("DB_NAME") or "njk",
+    "host": os.getenv("DB_HOST") or "localhost",
+    "user": os.getenv("DB_USER") or "njk",
+    "password": os.getenv("DB_PWD") or "1234",
+    "port": os.getenv("DB_PORT") or 5432
 }
 
 pgdb: PostgresqlDatabase = PostgresqlDatabase(**DB_CONFIG)
-
+print(pgdb)
 
 class BaseModel(Model):
     class Meta:

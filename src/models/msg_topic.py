@@ -9,3 +9,8 @@ class MsgTopic(BaseModel):
 
     class Meta:
         table_name = "msg_topic"
+        indexes = (
+            (('message_id',),False),
+            (('topic_id',),False),
+            (('message_id', 'topic_id'),False),
+        )

@@ -9,6 +9,9 @@ class User(BaseModel):
 
     class Meta:
         table_name = "user"
+        indexes = (
+            (('nickname',),False),
+        )
 
     def __str__(self):
         return f"{self.nickname} ({self.user_id})"

@@ -1,11 +1,9 @@
 import json
 import asyncio
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
-from bson import json_util
 from datetime import datetime
 from openai import OpenAI
 import re
-from pymongo import MongoClient, database, collection, cursor
 from typing import Any, List, Dict, Pattern, Tuple
 # import api_key
 import random
@@ -16,13 +14,15 @@ from models.message import Message
 from models.user import User
 from models.group import Group
 from models.at_user import AtUser
+from models.image import Image
+from models.img_whitelist import ImgWhitelist
 from services.img_handler import img_handler
 
 load_dotenv()
 api_key = os.getenv('API_KEY')
 base_url = os.getenv('BASE_URL')
 model_name = os.getenv('MODEL_NAME')
-print(api_key, base_url, model_name)
+print(api_key is not None, base_url is not None, model_name is not None)
 
 
 patterns: List[str] = [
@@ -123,6 +123,61 @@ class MsgHandler:
         # 关键修改1：不再提前获取loop，只初始化线程池（全局唯一）
         self.executor = ThreadPoolExecutor(max_workers=5)  # 控制最大并发数
 
+    async def handle_summary(self, event: Dict[str,Any]) -> Dict[str,Any]|None:
+        raw_message: str = event["raw_message"]
+        group_id: int = event["group_id"]
+        message_id: int = event["message_id"]
+
+        group: Group = Group.get_or_none(group_id=group_id)
+        if not group:
+            return 
+
+        match, pindex = self.match_index(raw_message)
+        print(f"操作{pindex}: {patterns[pindex] if pindex!=-1 else '无匹配'}")
+
+        if (not match) or pindex==njk_index:
+            # self.save_msg(event, raw_message, collection)
+            duplicate_count: int = self.save_msg_pg_and_check_img(event)
+            if duplicate_count>0:
+                return {
+                    "action": "send_group_msg",
+                    "params": {
+                        "group_id": group_id,
+                        "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
+                    }
+                }
+
+        if pindex>=0 and pindex<len(patterns) and match:
+            result: str|None = None
+
+            if pindex==help_index:
+                result = helps
+            else:
+                message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
+                # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+                messages: List[str] = self.get_history_pg(group,message_count)
+                result = await self.summary(messages,pindex)
+
+            response = self.build_response(event, result)
+            print(f"已完成操作{pindex}: {patterns[pindex]}")
+            return response
+
+        # elif random.uniform(0,1)<0.02:
+        #     response = self.build_response(event, ".总结 50")
+        #     print(f"已随机叫教授总结")
+        #     return response
+
+        elif random.uniform(0,1)<0.08:
+            message_count: int = random.randint(10,30)
+            # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+            messages: List[str] = self.get_history_pg(group,message_count)
+            result: str|None = await self.summary(messages,len(prompts)-1)
+
+            response = self.build_response(event, result)
+            print(f"已随机说话")
+            return response
+
+    
     # 异步summary方法（修复核心）
     async def summary(self, msg: Any, pindex: int) -> str|None:
         # 定义同步执行的AI调用函数
@@ -151,73 +206,24 @@ class MsgHandler:
         return await loop.run_in_executor(self.executor, _sync_summary)
 
     def match_index(self, raw_message: str) -> Tuple[re.Match[str]|None, int]:
+        print(f"匹配中：{raw_message}")
         for index, pattern in enumerate(patterns):
-            match = re.match(pattern, raw_message, re.DOTALL)
+            match = re.search(pattern, raw_message, re.DOTALL)
             if match:
                 return match, index
         return None, -1
 
-    async def handle_summary(self, event: Dict[str,Any], collection: collection.Collection) -> Dict[str,Any]|None:
-        raw_message: str = event["raw_message"]
-        group_id: int = event["group_id"]
-        message_id: int = event["message_id"]
-
-        match, pindex = self.match_index(raw_message)
-        print(f"操作{pindex}: {patterns[pindex] if pindex!=-1 else '无匹配'}")
-
-        if not match or pindex==njk_index:
-            self.save_msg(event, raw_message, collection)
-            duplicate_count: int = self.save_msg_pg_and_check_img(event)
-            if duplicate_count>0:
-                return {
-                    "action": "send_group_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
-                    }
-                }
-
-        if pindex>=0 and pindex<len(patterns) and match:
-            result: str|None = None
-
-            if pindex==help_index:
-                result = helps
-            else:
-                message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
-                # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-                messages: List[str] = self.get_history_pg(message_count)
-                result = await self.summary(messages,pindex)
-
-            response = self.build_response(event, result)
-            print(f"已完成操作{pindex}: {patterns[pindex]}")
-            return response
-
-        # elif random.uniform(0,1)<0.02:
-        #     response = self.build_response(event, ".总结 50")
-        #     print(f"已随机叫教授总结")
-        #     return response
-
-        elif random.uniform(0,1)<0.08:
-            message_count: int = random.randint(10,30)
-            # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-            messages: List[str] = self.get_history_pg(message_count)
-            result: str|None = await self.summary(messages,len(prompts)-1)
-
-            response = self.build_response(event, result)
-            print(f"已随机说话")
-            return response
-
     
-    def get_history(self, collection: collection.Collection, msgCount: int)-> List[Dict[str,Any]]:
-        messages: List[Dict[str, Any]] = list(collection.find({}, {"_id": 0}).sort("时间", -1).limit(msgCount))
-        messages.reverse()
-        for msg in messages:
-            msg['时间'] = msg['时间'].strftime("%m-%d %H:%M")
-        return messages
+    # def get_history(self, collection: collection.Collection, msgCount: int)-> List[Dict[str,Any]]:
+    #     messages: List[Dict[str, Any]] = list(collection.find({}, {"_id": 0}).sort("时间", -1).limit(msgCount))
+    #     messages.reverse()
+    #     for msg in messages:
+    #         msg['时间'] = msg['时间'].strftime("%m-%d %H:%M")
+    #     return messages
     
 
-    def get_history_pg(self,msgCount: int)-> List[str]:
-        messages: List[Message] = list(Message.select().order_by(Message.time.desc()).limit(msgCount))
+    def get_history_pg(self, group: Group, msgCount:int)-> List[str]:
+        messages: List[Message] = list(Message.select().where(Message.group==group).order_by(Message.time.desc()).limit(msgCount))
         messages.reverse()
         history = [str(msg) for msg in messages]
         print(history)
@@ -229,24 +235,25 @@ class MsgHandler:
             "action": "send_group_msg",
             "params": {
                 "group_id": event["group_id"],
-                "message": f"【新】{message}"
+                "message": f"{message}"
             }
         }
+        print(f"已构建响应消息：{response["params"]["message"]}")
         return response
 
-    def save_msg(self, event: Dict[str,Any], raw_message: str, collection: collection.Collection) -> None:
-        x=event["sender"]["card"]
-        if not x:
-            x=event["sender"]["nickname"]
-        new_message = {
-            "群友": x,
-            "群友id": event["user_id"],
-            "发言": raw_message,
-            "消息id": event["message_id"],
-            "时间": datetime.now()
-        }
-        collection.insert_one(new_message)
-        print("已存储消息")
+    # def save_msg(self, event: Dict[str,Any], raw_message: str, collection: collection.Collection) -> None:
+    #     x=event["sender"]["card"]
+    #     if not x:
+    #         x=event["sender"]["nickname"]
+    #     new_message = {
+    #         "群友": x,
+    #         "群友id": event["user_id"],
+    #         "发言": raw_message,
+    #         "消息id": event["message_id"],
+    #         "时间": datetime.now()
+    #     }
+    #     collection.insert_one(new_message)
+    #     print("已存储消息")
 
     def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> int:
         message_id = str(event["message_id"])
@@ -285,9 +292,27 @@ class MsgHandler:
                     text_list.append(f"@{msg['data']['qq']}")
             elif msg["type"]=="text":
                 text_list.append(msg["data"]["text"])
-            elif msg["type"]=="image":
-                imgurl_list.append(msg["data"]["url"])
-            elif msg["data"]["summary"]:
+            elif msg.get('type') == 'image':
+                data = msg['data']
+                is_emoji = (
+                    data.get('emoji_id') or 
+                    data.get('emoji_package_id') or 
+                    data.get('key') or 
+                    data.get('sub_type') == 1 or
+                    '动画表情' in data.get('summary', '')
+                )
+                if is_emoji:
+                    phash = img_handler.download_and_phash(data['url'])
+                    if Image.select().where(Image.image_hash==phash).exists() and not ImgWhitelist.select().where(ImgWhitelist.image_hash==phash).exists():
+                        ImgWhitelist.create(image_hash=phash)
+                        print("发现已误判为图片的表情包，已加入白名单")
+                    else:
+                        print("跳过表情包")  
+                else:
+                    imgurl_list.append(msg['data']['url'])  
+                    print("这是图片，不是表情包") 
+                           
+            elif msg["data"].get("summary"):
                 text_list.append(f"[{msg["type"]}: {msg['data']['summary']}]")
             else:
                 text_list.append(f"[{msg['type']}]")
@@ -299,9 +324,11 @@ class MsgHandler:
             time=time,
             sender=sender,
             group=group,
+            card=event["sender"]["card"],
             text="".join(text_list),
             reply=reply,
-            raw_json=json.dumps(event["message"])
+            raw_json=json.dumps(event["message"]),
+            raw_message=event["raw_message"]
         )
         print(f"已储存消息{message_id}到pg")
 

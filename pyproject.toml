@@ -1,6 +1,6 @@
 [project]
 name = "NJK"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
     "imagehash>=4.3.2",
     "openai>=2.12.0",
