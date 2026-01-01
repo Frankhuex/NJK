@@ -5,3 +5,4 @@ src/api_key.py
 **/__pycache__/
 tests/
 .env
+

@@ -1,7 +1,19 @@
 # NJK使用方法
+## 0. 安装PostgreSQL
 ## 1. 启动Python WebSocket服务器（就是这里的代码）
-### 1.0 修改api_key.py
-在src创建api_key.py，根据实际情况定义三个变量api_key、base_url和model。
+### 1.0 修改环境变量
+在根目录创建.env，根据实际情况定义以下8个变量：
+PostgreSQL相关的：
+DB_NAME
+DB_HOST
+DB_USER
+DB_PWD
+DB_PORT
+
+大模型API相关的：
+API_KEY
+BASE_URL
+MODEL_NAME
 
 ### 1.1 方法一：用uv
 #### 1.1.1 装包：
@@ -9,7 +21,11 @@
 uv sync
 ```
 该命令会自动创建名为.venv的虚拟环境，并安装依赖包。
-#### 1.1.2 运行：
+#### 1.1.2 运行建表脚本：
+```bash
+uv run src/create_table.py
+```
+#### 1.1.3 运行主程序：
 ```bash
 nohup uv run src/main.py &
 ```
@@ -27,7 +43,11 @@ source .venv/bin/activate
 pip3 install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 如果不用国内镜像可以不加-i和后面
-#### 1.2.4 运行
+#### 1.2.4 运行建表脚本
+```bash
+python3 src/create_table.py
+```
+#### 1.2.5 运行
 ```bash
 nohup python3 src/main.py &
 ```
