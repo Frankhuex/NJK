@@ -1,14 +1,14 @@
 import json
-import asyncio
+
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
 from datetime import datetime
-from openai import OpenAI
+
 import re
 from typing import Any, List, Dict, Pattern, Tuple
 # import api_key
 import random
-import os
-from dotenv import load_dotenv
+
+
 from configs.pgdb import pgdb
 from models.message import Message
 from models.user import User
@@ -17,33 +17,37 @@ from models.at_user import AtUser
 from models.image import Image
 from models.img_whitelist import ImgWhitelist
 from services.img_handler import img_handler
+from services.bbh_client import bbh_client
+from services.ai_client import ai_client
 
-load_dotenv()
-api_key = os.getenv('API_KEY')
-base_url = os.getenv('BASE_URL')
-model_name = os.getenv('MODEL_NAME')
-print(api_key is not None, base_url is not None, model_name is not None)
 
 
 patterns: List[str] = [
-    r"^\.概括 (\d+)$",
-    r"^\.俳句 (\d+)$",
-    r"^\.无只因 (\d+)$",
-    r"^\.最 (\d+)$",
-    r"^\.vs (\d+)$",
-    r"^\.ccb (\d+)$",
-    r"^\.ai (\d+)$",
-    r"^\.xmas (\d+)$",
+    r"^ *\.概括 *(\d+) *$",
+    r"^ *\.俳句 *(\d+) *$",
+    r"^ *\.无只因 *(\d+) *$",
+    r"^ *\.最 *(\d+) *$",
+    r"^ *\.vs *(\d+) *$",
+    r"^ *\.ccb *(\d+) *$",
+    r"^ *\.ai *(\d+) *$",
+    r"^ *\.xmas *(\d+) *$",
 
     r"你居垦|\[CQ:at,qq=1558109748\]",
-    r"^\.help$"
+    r"^ *\.help *$",
+
+    r"^ *\.bbh *$",
+    r"^ *\.bbh *(\d+) *$",
+    r"^ *\.bbh *(\d+) +(\d+) *$",
+    r"^ *\.bbh *(\d+) +(\d+)-(\d+) *$",
+    r"^ *\.bbh *(\d+) *add *([^\n]*)\n*([\s\S]*) *$",
+    r"^ *\.bbh *(\d+) *ai *$"
 ]
 
-njk_index: int = len(patterns)-2
-help_index: int = len(patterns)-1
+njk_index=8
+help_index=9
 
 
-helps: str = ".概括 .俳句 .无只因 .最 .vs .ccb \n后面均需要空格后接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复"
+helps: str = ".概括 .俳句 .无只因 .最 .vs .ccb .ai .xmas \n后面均需要空格后接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复"
 
 prompts: List[str] = [
     "用不超过100字做精辟总结，只输出总结内容文本，不输出其他任何内容，不要用markdown，请输出纯文本",
@@ -115,14 +119,6 @@ prompts: List[str] = [
 
 
 class MsgHandler:
-    def __init__(self):
-        self.client: OpenAI = OpenAI(
-            api_key=api_key,
-            base_url=base_url
-        )
-        # 关键修改1：不再提前获取loop，只初始化线程池（全局唯一）
-        self.executor = ThreadPoolExecutor(max_workers=5)  # 控制最大并发数
-
     async def handle_summary(self, event: Dict[str,Any]) -> Dict[str,Any]|None:
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
@@ -146,21 +142,67 @@ class MsgHandler:
                         "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
                     }
                 }
-
-        if pindex>=0 and pindex<len(patterns) and match:
+        # 不是elif
+        if match:
             result: str|None = None
-
-            if pindex==help_index:
-                result = helps
-            else:
+            if pindex<help_index:
                 message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 messages: List[str] = self.get_history_pg(group,message_count)
-                result = await self.summary(messages,pindex)
+                result = await ai_client.summary(self.build_prompt_with_history(messages, prompts[pindex]))
 
-            response = self.build_response(event, result)
-            print(f"已完成操作{pindex}: {patterns[pindex]}")
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+            
+            elif pindex==help_index:
+                result = helps
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+            
+            elif pindex==help_index+1: #plaza
+                result = await bbh_client.plaza_cmd()
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+            
+            elif pindex==help_index+2: #book
+                book_id = int(match.group(1))
+                result = await bbh_client.book_cmd(book_id)
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+            
+            elif pindex==help_index+3: #paragraph
+                book_id = int(match.group(1))
+                para_index = int(match.group(2))
+                result = await bbh_client.paragraph_cmd(book_id, para_index, para_index)
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+         
+            elif pindex==help_index+4: #paragraphs
+                book_id = int(match.group(1))
+                para_left_index = int(match.group(2))
+                para_right_index = int(match.group(3))
+                result = await bbh_client.paragraph_cmd(book_id, para_left_index, para_right_index)
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+            
+            elif pindex==help_index+5: #add paragraph
+                book_id: int = int(match.group(1))
+                author: str = match.group(2)
+                content: str = match.group(3)
+                result = await bbh_client.add_paragraph_cmd(book_id, author, content)
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+            elif pindex==help_index+6: #ai
+                book_id: int = int(match.group(1))
+                result = await bbh_client.ai_writing_cmd(book_id)
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+
             return response
+
 
         # elif random.uniform(0,1)<0.02:
         #     response = self.build_response(event, ".总结 50")
@@ -171,7 +213,7 @@ class MsgHandler:
             message_count: int = random.randint(10,30)
             # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
             messages: List[str] = self.get_history_pg(group,message_count)
-            result: str|None = await self.summary(messages,len(prompts)-1)
+            result: str|None = await ai_client.summary(self.build_prompt_with_history(messages,prompts[len(prompts)-1]))
 
             response = self.build_response(event, result)
             print(f"已随机说话")
@@ -179,31 +221,7 @@ class MsgHandler:
 
     
     # 异步summary方法（修复核心）
-    async def summary(self, msg: Any, pindex: int) -> str|None:
-        # 定义同步执行的AI调用函数
-        def _sync_summary():
-            try:
-                if not model_name:
-                    raise ValueError("未设置AI模型")
-                response = self.client.chat.completions.create(
-                    model = model_name,
-                    messages=[
-                        {
-                            "role": "user", 
-                            "content": f"{prompts[pindex]}\n\n聊天内容：\n\n{msg}"
-                        }
-                    ],
-                    stream=False
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                print(f"AI调用出错: {str(e)}")
-                return f"处理失败：{str(e)}"
-        
-        # 关键修改2：动态获取当前活跃的事件循环
-        loop = asyncio.get_running_loop()
-        # 用当前循环执行线程池任务（避免跨循环）
-        return await loop.run_in_executor(self.executor, _sync_summary)
+    
 
     def match_index(self, raw_message: str) -> Tuple[re.Match[str]|None, int]:
         print(f"匹配中：{raw_message}")
@@ -221,6 +239,8 @@ class MsgHandler:
     #         msg['时间'] = msg['时间'].strftime("%m-%d %H:%M")
     #     return messages
     
+    def build_prompt_with_history(self, msg: Any, prompt: str) -> str:
+        return f"{prompt}\n\n聊天内容：\n\n{msg}"
 
     def get_history_pg(self, group: Group, msgCount:int)-> List[str]:
         messages: List[Message] = list(Message.select().where(Message.group==group).order_by(Message.time.desc()).limit(msgCount))

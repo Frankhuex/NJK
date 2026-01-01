@@ -140,7 +140,7 @@ async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]
     user = User.get_or_create(user_id="1558109748", defaults={"nickname": "你居垦"})[0]
     group = Group.get_or_create(group_id=str(response["params"]["group_id"]), defaults={"group_name": str(response["params"]["group_id"])})[0]
     message = Message.create(
-        message_id=message_id,
+        message_id=str(message_id),
         time=response["time"],
         sender=user,
         group=group,
