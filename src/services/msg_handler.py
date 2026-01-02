@@ -174,6 +174,7 @@ class MsgHandler:
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
             
+
             elif pindex==help_index:
                 result = helps
                 response = self.build_response(event, result)
@@ -245,7 +246,8 @@ class MsgHandler:
 
     def match_index(self, raw_message: str) -> Tuple[re.Match[str]|None, int]:
         print(f"匹配中：{raw_message}")
-        for index, pattern in enumerate(patterns):
+        for index in range(len(patterns)-1, -1, -1):
+            pattern = patterns[index]
             match = re.search(pattern, raw_message, re.DOTALL)
             if match:
                 return match, index
@@ -310,6 +312,11 @@ class MsgHandler:
                 "group_name": event["group_name"]
             }
         )[0]
+
+        if group.group_name==str(event["group_id"]):
+            group.group_name=event["group_name"]
+            group.save()
+            print(f"已更新群名为{event['group_name']}")
         
         
         text_list: List[str] = []
