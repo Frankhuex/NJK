@@ -1,9 +1,8 @@
 [project]
 name = "NJK"
-version = "0.4.0"
+version = "0.3.0"
 dependencies = [
     "imagehash>=4.3.2",
-    "jieba>=0.42.1",
     "openai>=2.12.0",
     "peewee>=3.18.3",
     "peewee-migrate>=1.14.3",

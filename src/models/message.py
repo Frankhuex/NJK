@@ -1,4 +1,4 @@
-from peewee import CharField, IntegerField, BooleanField, DateTimeField, ForeignKeyField, TextField
+from peewee import CharField, IntegerField, BooleanField, DateTimeField, ForeignKeyField
 from models.user import User
 from models.group import Group
 from models.topic import Topic
@@ -12,10 +12,10 @@ class Message(BaseModel):
     sender = ForeignKeyField(User, field='user_id', backref='messages', null=True, on_delete='SET NULL')
     group = ForeignKeyField(Group, field='group_id', backref='messages', null=True, on_delete='SET NULL')
     card = CharField(max_length=100, null=True)
-    text = TextField(null=True)
+    text = CharField(null=True)
     reply = ForeignKeyField('self', column_name='reply_id', field='message_id', backref='replies', null=True, on_delete='SET NULL')
     raw_json = JSONField(null=True)
-    raw_message = TextField(null=True)
+    raw_message = CharField(null=True)
 
     class Meta:
         table_name = "message"

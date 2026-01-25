@@ -4,7 +4,6 @@ from models.topic import Topic
 from models.message import Message
 
 class MsgTopic(BaseModel):
-    id = AutoField(primary_key=True)
     message = ForeignKeyField(Message, backref='msg_topics', on_delete='CASCADE')
     topic = ForeignKeyField(Topic, backref='msg_topics', on_delete='CASCADE')
 

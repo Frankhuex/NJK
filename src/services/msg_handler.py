@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
@@ -20,13 +19,11 @@ from models.img_whitelist import ImgWhitelist
 from services.img_handler import img_handler
 from services.bbh_client import bbh_client
 from services.ai_client import ai_client
-from services.msg_analyzer import msg_analyzer
 
 
 
 patterns: List[str] = [
     r"^ *\.概括 *(\d+) *$",
-    r"^ *\.总结 *(\d+) *$",
     r"^ *\.俳句 *(\d+) *$",
     r"^ *\.无只因 *(\d+) *$",
     r"^ *\.最 *(\d+) *$",
@@ -36,29 +33,21 @@ patterns: List[str] = [
     r"^ *\.xmas *(\d+) *$",
 
     r"你居垦|\[CQ:at,qq=1558109748\]",
-    r"^ *\.报告 *(\d+) *$",
     r"^ *\.help *$",
-    
 
     r"^ *\.bbh *$",
     r"^ *\.bbh *(\d+) *$",
     r"^ *\.bbh *(\d+) +(\d+) *$",
     r"^ *\.bbh *(\d+) +(\d+)-(\d+) *$",
     r"^ *\.bbh *(\d+) *add *([^\n]*)\n*([\s\S]*) *$",
-    r"^ *\.bbh *(\d+) *ai *$",
-
-    
+    r"^ *\.bbh *(\d+) *ai *$"
 ]
 
-njk_index=9
-report_index=10
-help_index=11
+njk_index=8
+help_index=9
 
 
-
-helps: str = """.概括 .总结 .俳句 .无只因 .最 .vs .ccb .ai .xmas \n后面均需要接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复
-
-.报告 后面需要接数字，表示报告查询的天数
+helps: str = """.概括 .俳句 .无只因 .最 .vs .ccb .ai .xmas \n后面均需要空格后接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复
 
 bbh模块讲解：
 .bbh  
@@ -82,47 +71,6 @@ bbh模块讲解：
 
 prompts: List[str] = [
     "用不超过100字做精辟总结，只输出总结内容文本，不输出其他任何内容，不要用markdown，请输出纯文本",
-
-    """你是一个专业的QQ群聊内容总结助手。请根据提供的群聊消息数据，生成一份结构清晰、重点突出的纯文本群聊总结报告。
-
-    【数据字段说明】
-    - `群友`：发言者的群昵称或备注，这是主要的身份标识
-    - `群友id`：发言者的QQ号，仅用于理解`@消息`中提及的对象，总结时不要显示此ID
-    - `消息id`：消息的唯一标识，仅用于理解`回复消息`的对话关系，总结时不要显示此ID
-    - `发言`：消息的实际内容（已清理CQ码）
-    - `时间`：消息发送时间
-
-    【CQ码处理指南】
-    - `[CQ:face,id=123]` → 表情符号，总结时忽略或描述为"发表情"
-    - `[CQ:image,file=xxx.jpg]` → 图片，总结时忽略或总结为"分享图片"或根据上下文推断图片内容
-    - `[CQ:at,qq=123456]` → @某人，总结时保留"@用户名"的语义
-    - `[CQ:reply,id=xxx]` → 回复消息，总结时注意对话的连贯性
-    - `[CQ:share,url=...]` → 分享链接，总结为"分享链接"或根据标题描述内容
-
-    【核心原则】
-    输出必须是纯文本，仅使用以下符号进行排版：换行、空格、【】、◆、→、`等。严禁使用Markdown
-
-    【总结模板】
-    【🗓️ 总结时段】X月X日 HH:MM 至 X月X日 HH:MM
-
-    【🌐 整体氛围】
-    用一两句话概括群内整体气氛，如“气氛活跃”、“围绕XX话题展开热烈讨论”等。
-
-    【🔥 热聊话题】
-    ◆ 话题一：用一句话概括核心事件
-    → 时间：昨天 HH:MM - HH:MM
-    → 核心成员：成员A，成员B，成员C
-    → 详情：描述事件起因、经过、关键对话和结果。关键人物发言或网络用语可用`引号`突出。
-
-    ◆ 话题二：用一句话概括核心事件
-    → 时间：昨天 HH:MM - 今天 HH:MM
-    → 核心成员：成员D，成员E
-    → 详情：描述讨论的主要内容、不同观点和结论。
-
-    【💎 其他亮点】
-    - 成员F 分享了 [资源/图片/见闻]。
-    - 成员G 提出了一个关于 [问题] 的疑问。
-    """,
 
     """
         将以下内容浓缩为一首俳句，要求用幽默的文笔生动地展现这些内容的核心主旨.
@@ -205,7 +153,7 @@ class MsgHandler:
 
         if (not match) or pindex==njk_index:
             # self.save_msg(event, raw_message, collection)
-            duplicate_count: int = await self.save_msg_pg_and_check_img(event)
+            duplicate_count: int = self.save_msg_pg_and_check_img(event)
             if duplicate_count>0:
                 return {
                     "action": "send_group_msg",
@@ -217,7 +165,7 @@ class MsgHandler:
         # 不是elif
         if match:
             result: str|None = None
-            if pindex<=njk_index:
+            if pindex<help_index:
                 message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 messages: List[str] = self.get_history_pg(group,message_count)
@@ -226,11 +174,6 @@ class MsgHandler:
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
             
-            elif pindex==report_index:
-                daynum: int = int(match.group(1))
-                result = await msg_analyzer.get_group_report_with_auto_analyze(group,daynum,10)
-                response = self.build_response(event, result)
-                print(f"已完成操作{pindex}: {patterns[pindex]}")
 
             elif pindex==help_index:
                 result = helps
@@ -354,7 +297,7 @@ class MsgHandler:
     #     collection.insert_one(new_message)
     #     print("已存储消息")
 
-    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> int:
+    def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> int:
         message_id = str(event["message_id"])
         time = datetime.fromtimestamp(event["time"])
         sender: User = User.get_or_create(
@@ -435,8 +378,6 @@ class MsgHandler:
             raw_message=event["raw_message"]
         )
         print(f"已储存消息{message_id}到pg")
-
-        await msg_analyzer.analyze_msg(message)
 
         for u in at_list:
             AtUser.create(

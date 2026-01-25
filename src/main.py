@@ -12,7 +12,6 @@ from configs.pgdb import pgdb
 from models.message import Message
 from models.user import User
 from models.group import Group
-from services.msg_analyzer import msg_analyzer
 from services.msg_handler import msg_handler
 import traceback
 
@@ -138,9 +137,9 @@ async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]
         print("响应消息为空，未存储自己消息")
         return False
     message_id=str(response_back["data"]["message_id"])
-    user: User = User.get_or_create(user_id="1558109748", defaults={"nickname": "你居垦"})[0]
-    group: Group = Group.get_or_create(group_id=str(response["params"]["group_id"]), defaults={"group_name": str(response["params"]["group_id"])})[0]
-    message: Message = Message.create(
+    user = User.get_or_create(user_id="1558109748", defaults={"nickname": "你居垦"})[0]
+    group = Group.get_or_create(group_id=str(response["params"]["group_id"]), defaults={"group_name": str(response["params"]["group_id"])})[0]
+    message = Message.create(
         message_id=str(message_id),
         time=response["time"],
         sender=user,
@@ -148,7 +147,6 @@ async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]
         text=response["params"]["message"],
         raw_json=json.dumps(response["params"]["message"])
     )
-    await msg_analyzer.analyze_msg(message)
     print(f"已存储自己消息{message_id}到pg")
     return True
 

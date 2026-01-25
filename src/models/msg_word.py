@@ -4,7 +4,6 @@ from models.word import Word
 from models.message import Message
 
 class MsgWord(BaseModel):
-    id = AutoField(primary_key=True)
     message = ForeignKeyField(Message, backref='msg_words', on_delete='CASCADE')
     word = ForeignKeyField(Word, backref='msg_words', on_delete='CASCADE')
 
