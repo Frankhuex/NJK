@@ -4,6 +4,7 @@ from models.user import User
 from models.message import Message
 
 class AtUser(BaseModel):
+    id = AutoField(primary_key=True)
     message = ForeignKeyField(Message, backref='at_users', on_delete='CASCADE')
     user = ForeignKeyField(User, backref='at_users', on_delete='CASCADE')
 
