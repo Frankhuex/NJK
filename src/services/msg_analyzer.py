@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, time as dt_time
 import asyncio
 
 reserved_words = ['你居垦','【新】 ']
-banned_words = ['@']
+banned_words = ['@','@别人这一类的标记','[face]','[face]等任何以[]包裹的词']
 
 class MsgAnalyzer:
     def __init__(self):
@@ -163,7 +163,7 @@ class MsgAnalyzer:
 
     async def extract_topics(self, msg: Message) -> List[str]:
         saved_topics: List[MsgTopic] = MsgTopic.select()
-        prompt: str = f"这是已知的话题列表：\n{saved_topics}\n\n这是一条新文本：\n{msg.text}\n\n请分析这条文本涉及的话题（至多5个），优先从话题列表中选取，列表中没有的话题可以补充，将补充的话题输出为用空格分割的字符串，例如：\n生活 游戏 你居垦 Frank 竹林\n\n禁止输出多余的内容"
+        prompt: str = f"这是已知的话题列表：\n{saved_topics}\n\n这是一条新文本：\n{msg.text}\n\n请分析这条文本涉及的话题（至多5个），优先从话题列表中选取，列表中没有的话题可以补充，将所有分析出的话题输出为用空格分割的字符串，例如：\n生活 游戏 你居垦 Frank 竹林\n\n禁止输出多余的内容"
         response: str|None = await ai_client.summary(prompt)
         if response is None or len(response) > 30:
             return []
