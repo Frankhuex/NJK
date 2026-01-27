@@ -17,7 +17,7 @@ source .venv/bin/activate
 
 # 3. 启动新进程
 echo "启动新进程..."
-nohup python3 src/main.py &
+nohup python3 -u src/main.py &
 
 echo "启动完成！PID: $!"
 echo "日志输出到: nohup.out"
