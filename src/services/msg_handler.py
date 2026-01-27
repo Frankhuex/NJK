@@ -191,14 +191,14 @@ prompts: List[str] = [
 
 
 class MsgHandler:
-    async def handle_summary(self, event: Dict[str,Any]) -> Dict[str,Any]|None:
+    async def handle_summary(self, event: Dict[str,Any]) -> Tuple[Dict[str,Any]|None,bool]: # (response, should_save)
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
         message_id: int = event["message_id"]
 
         group: Group = Group.get_or_none(group_id=group_id)
         if not group:
-            return 
+            return None, False
 
         match, pindex = self.match_index(raw_message)
         print(f"操作{pindex}: {patterns[pindex] if pindex!=-1 else '无匹配'}")
@@ -213,7 +213,8 @@ class MsgHandler:
                         "group_id": group_id,
                         "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
                     }
-                }
+                }, False
+            
         # 不是elif
         if match:
             result: str|None = None
@@ -279,7 +280,7 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
 
-            return response
+            return response, (pindex==njk_index)
 
 
         # elif random.uniform(0,1)<0.02:
@@ -295,12 +296,13 @@ class MsgHandler:
 
             response = self.build_response(event, result)
             print(f"已随机说话")
-            return response
+            return response, True
+        
+        else:
+            return None, False
 
     
     # 异步summary方法（修复核心）
-    
-
     def match_index(self, raw_message: str) -> Tuple[re.Match[str]|None, int]:
         print(f"匹配中：{raw_message}")
         for index in range(len(patterns)-1, -1, -1):

@@ -72,11 +72,12 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
         if event.get("post_type") == "message" and event.get("message_type") == "group":
             if event["group_id"] in group_list:
                 print(f"【处理LLM任务】 {client_address} - 消息ID: {event.get('message_id')}")
-                response: Dict[str,Any]|None = await msg_handler.handle_summary(event)
+                response, should_save = await msg_handler.handle_summary(event)
                 if response: 
                     await websocket.send(json.dumps(response))
                     print(f"【发送LLM响应】 {client_address} - 消息ID: {event.get('message_id')}")
                     response["time"]=datetime.now()
+                    response["should_save"] = should_save
                     await self_response_queue.put(response)
                     print(f"未存储的自己消息数：{self_response_queue.qsize()}")
 
@@ -107,8 +108,11 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
             print(f"【处理自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
             self_response: Dict[str,Any] = await self_response_queue.get()
             # await save_self_msg(self_response, event, mongodb[str(self_response["params"]["group_id"])])
-            await save_self_msg_pg(self_response, event)
-            print(f"【完成自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
+            if self_response["should_save"]:
+                await save_self_msg_pg(self_response, event)
+                print(f"【完成自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
+            else:
+                print(f"消息不保存: {self_response['params']['message']}")
             print(f"未存储的自己消息数：{self_response_queue.qsize()}")
             
     except Exception as e:

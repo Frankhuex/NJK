@@ -116,7 +116,11 @@ class MsgAnalyzer:
 
     async def extract_topics(self, text: str) -> List[str]:
         saved_topics: List[MsgTopic] = MsgTopic.select()
-        prompt: str = f"这是已知的话题列表：\n{saved_topics}\n\n这是一条新文本：\n{text}\n\n请分析这条文本涉及的话题（至多5个），优先从话题列表中选取，列表中没有的话题可以补充，将所有分析出的话题输出为用空格分割的字符串\n\n禁止输出多余的内容"
+        prompt: str = f"""
+        这是已知的话题列表：\n{saved_topics}\n
+        接下来我需要你分析一段文本涉及的话题（至多5个，意思互不重叠），优先从话题列表中选取，列表中没有的话题可以补充，将所有分析出的话题输出为用空格分割的字符串，禁止输出多余的内容
+        以下是文本原文：\n{text}
+        """
         response: str|None = await ai_client.summary(prompt)
         if response is None or len(response) > 30:
             return []
