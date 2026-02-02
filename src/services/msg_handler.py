@@ -191,29 +191,32 @@ prompts: List[str] = [
 
 
 class MsgHandler:
-    async def handle_summary(self, event: Dict[str,Any]) -> Tuple[Dict[str,Any]|None,bool]: # (response, should_save)
+    async def handle_summary(self, event: Dict[str,Any]) -> List[Tuple[Dict[str,Any]|None,bool]]: # [(response, should_save)]
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
         message_id: int = event["message_id"]
 
         group: Group = Group.get_or_none(group_id=group_id)
         if not group:
-            return None, False
+            return [(None, False)]
 
         match, pindex = self.match_index(raw_message)
         print(f"操作{pindex}: {patterns[pindex] if pindex!=-1 else '无匹配'}")
 
         if (not match) or pindex==njk_index:
             # self.save_msg(event, raw_message, collection)
-            duplicate_count: int = await self.save_msg_pg_and_check_img(event)
-            if duplicate_count>0:
-                return {
-                    "action": "send_group_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
-                    }
-                }, False
+            duplicates = await self.save_msg_pg_and_check_img(event)
+            rsps: List[Tuple[Dict[str,Any]|None,bool]] = []
+            if len(duplicates)>0:
+                for duplicate_count, duplicate_msg_id in duplicates:
+                    rsps.append(({
+                        "action": "send_group_msg",
+                        "params": {
+                            "group_id": group_id,
+                            "message": f"[CQ:reply,id={duplicate_msg_id}]🇫🇷{duplicate_count}遍了。"
+                        }
+                    }, False))
+                return rsps
             
         # 不是elif
         if match:
@@ -280,7 +283,7 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
 
-            return response, (pindex==njk_index)
+            return [(response, (pindex==njk_index))]
 
 
         # elif random.uniform(0,1)<0.02:
@@ -296,10 +299,10 @@ class MsgHandler:
 
             response = self.build_response(event, result)
             print(f"已随机说话")
-            return response, True
+            return [(response, True)]
         
         else:
-            return None, False
+            return [(None, False)]
 
     
     # 异步summary方法（修复核心）
@@ -356,7 +359,7 @@ class MsgHandler:
     #     collection.insert_one(new_message)
     #     print("已存储消息")
 
-    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> int:
+    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> List[Tuple[int, str]]:
         message_id = str(event["message_id"])
         time = datetime.fromtimestamp(event["time"])
         sender: User = User.get_or_create(
@@ -447,11 +450,13 @@ class MsgHandler:
             )
             print(f"已储存@{u.nickname}到pg")
 
+
+        duplicates: List[Tuple[int, str]] = []
         for url in imgurl_list:
-            duplicate_count: int = img_handler.save_and_check_duplicate(url, message)
-            if duplicate_count>0:
-                return duplicate_count
-        return 0
+            duplicate = img_handler.save_and_check_duplicate(url, message)
+            if duplicate[0]>0:
+                duplicates.append(duplicate)
+        return duplicates
 
 
 
