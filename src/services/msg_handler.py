@@ -172,7 +172,7 @@ prompts: List[str] = [
         接下来看下面的聊天记录，顺着聊天的内容、氛围、时间节点，说一句贴合的话
         聊天的语气要像现实里的群友，平衡好轻松和正经的感觉，句子不用加句末标点，尽量简短自然，融入对话就行
         如果聊天记录里有人在问你问题，直接自然回应就好
-        只输出你要说的那句话，不要加说话人、冒号，也不要有其他多余的内容
+        只输出你要说的那句话，不要加说话人、冒号，也不要有其他多余的内容，注意一定要贴合最新消息的语境
     """
 
     
@@ -191,40 +191,47 @@ prompts: List[str] = [
 
 
 class MsgHandler:
-    async def handle_summary(self, event: Dict[str,Any]) -> Dict[str,Any]|None:
+    async def handle_summary(self, event: Dict[str,Any]) -> List[Tuple[Dict[str,Any]|None,bool]]: # [(response, should_save)]
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
         message_id: int = event["message_id"]
 
         group: Group = Group.get_or_none(group_id=group_id)
         if not group:
-            return 
+            return [(None, False)]
 
         match, pindex = self.match_index(raw_message)
         print(f"操作{pindex}: {patterns[pindex] if pindex!=-1 else '无匹配'}")
 
         if (not match) or pindex==njk_index:
             # self.save_msg(event, raw_message, collection)
-            duplicate_count: int = await self.save_msg_pg_and_check_img(event)
-            if duplicate_count>0:
-                return {
-                    "action": "send_group_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "message": f"[CQ:reply,id={message_id}]🇫🇷{duplicate_count}遍了。"
-                    }
-                }
+            duplicates = await self.save_msg_pg_and_check_img(event)
+            rsps: List[Tuple[Dict[str,Any]|None,bool]] = []
+            if len(duplicates)>0:
+                for duplicate_count, duplicate_msg_id in duplicates:
+                    rsps.append(({
+                        "action": "send_group_msg",
+                        "params": {
+                            "group_id": group_id,
+                            "message": f"[CQ:reply,id={duplicate_msg_id}]🇫🇷{duplicate_count}遍了。"
+                        }
+                    }, False))
+                return rsps
+            
         # 不是elif
         if match:
             result: str|None = None
-            if pindex<=njk_index:
-                message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
+            if pindex<njk_index: # normal command
+                message_count: int = int(match.group(1))
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 messages: List[str] = self.get_history_pg(group,message_count)
                 result = await ai_client.summary(self.build_prompt_with_history(messages, prompts[pindex]))
 
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+            elif pindex==njk_index: # 提及你居垦时说话
+                response = await self.njk_say(event, group)
             
             elif pindex==report_index:
                 daynum: int = int(match.group(1))
@@ -279,28 +286,18 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
 
-            return response
-
-
-        # elif random.uniform(0,1)<0.02:
-        #     response = self.build_response(event, ".总结 50")
-        #     print(f"已随机叫教授总结")
-        #     return response
+            return [(response, (pindex==njk_index))]
 
         elif random.uniform(0,1)<0.08:
-            message_count: int = random.randint(10,30)
-            # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-            messages: List[str] = self.get_history_pg(group,message_count)
-            result: str|None = await ai_client.summary(self.build_prompt_with_history(messages,prompts[len(prompts)-1]))
-
-            response = self.build_response(event, result)
+            response = await self.njk_say(event, group)
             print(f"已随机说话")
-            return response
+            return [(response, True)]
+        
+        else:
+            return [(None, False)]
 
     
     # 异步summary方法（修复核心）
-    
-
     def match_index(self, raw_message: str) -> Tuple[re.Match[str]|None, int]:
         print(f"匹配中：{raw_message}")
         for index in range(len(patterns)-1, -1, -1):
@@ -328,6 +325,22 @@ class MsgHandler:
         print(history)
         return history
 
+    async def njk_say(self, event: Dict[str,Any], group: Group) -> Dict[str, Any]:
+        message_count: int = random.randint(10,30)
+        # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+        messages: List[str] = self.get_history_pg(group,message_count)
+        prompt_with_history: str = self.build_prompt_with_history(messages, prompts[njk_index])
+        result: str|None = None
+        try_count = 0
+        while result is None or any(result in m for m in messages):
+            try_count += 1
+            result = await ai_client.summary(prompt_with_history, temperature=random.uniform(0.8,0.9))
+            print(f"第{try_count}次组织语言：{result}")
+        print(f"试了{try_count}次才不复读：{result}")
+
+        response = self.build_response(event, result)
+        print(f"已完成操作{njk_index}: {patterns[njk_index]}")
+        return response
 
     def build_response(self, event: Dict[str,Any], message: str|None) -> Dict[str,Any]:
         response = {
@@ -354,7 +367,7 @@ class MsgHandler:
     #     collection.insert_one(new_message)
     #     print("已存储消息")
 
-    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> int:
+    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> List[Tuple[int, str]]:
         message_id = str(event["message_id"])
         time = datetime.fromtimestamp(event["time"])
         sender: User = User.get_or_create(
@@ -445,11 +458,13 @@ class MsgHandler:
             )
             print(f"已储存@{u.nickname}到pg")
 
+
+        duplicates: List[Tuple[int, str]] = []
         for url in imgurl_list:
-            duplicate_count: int = img_handler.save_and_check_duplicate(url, message)
-            if duplicate_count>0:
-                return duplicate_count
-        return 0
+            duplicate = img_handler.save_and_check_duplicate(url, message)
+            if duplicate[0]>0:
+                duplicates.append(duplicate)
+        return duplicates
 
 
 

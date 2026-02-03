@@ -17,63 +17,14 @@ from peewee import fn, SQL, JOIN
 from datetime import date, datetime, timedelta, time as dt_time
 import asyncio
 
-reserved_words = ['你居垦','【新】 ']
-banned_words = ['@']
+reserved_words = ['你居垦','【新】']
+banned_words = ['@','[face]']
+banned_regex = [r'@\S+\s',r'\[[^\]]*\]']
 
 class MsgAnalyzer:
     def __init__(self):
         for w in reserved_words:
-            jieba.add_word(w,freq=200000000)
-    
-    async def analyze_all(self, concurrency: int = 10) -> int:
-        """
-        并发分析消息
-        :param concurrency: 最大并发数，建议设为 10-20
-        """
-        # 1. 查出待处理的消息
-        sub_topic = MsgTopic.select().where(MsgTopic.message == Message.message_id)
-        sub_word = MsgWord.select().where(MsgWord.message == Message.message_id)
-        
-        # 转换为列表，避免在循环中重复触发 SQL 查询
-        query_list = list(Message.select().where(
-            ~fn.EXISTS(sub_topic) & ~fn.EXISTS(sub_word)
-        ).order_by(Message.time.asc()))
-        
-        total = len(query_list)
-        if total == 0:
-            print("No messages need analysis.")
-            return 0
-
-        success = 0
-        count = 0
-        # 信号量：控制同时进行的 analyze_msg 数量
-        sem = asyncio.Semaphore(concurrency)
-        # 锁：确保在更新 success/count 时不会有竞态风险（虽然Python协程是单线程，但保持习惯更好）
-        lock = asyncio.Lock()
-
-        async def worker(msg):
-            nonlocal success, count
-            async with sem:  # 限制并发
-                try:
-                    words, topics = await self.analyze_msg(msg)
-                    async with lock:
-                        if words or topics:
-                            success += 1
-                        count += 1
-                        # 每完成 10 条打印一次进度，避免频繁打印影响性能
-                        if count % 10 == 0 or count == total:
-                            print(f"Progress: {count}/{total} messages analyzed, {success} success")
-                except Exception as e:
-                    print(f"Error analyzing message {msg.message_id}: {e}")
-
-        # 2. 创建所有协程任务
-        tasks = [worker(msg) for msg in query_list]
-        
-        # 3. 并发执行
-        await asyncio.gather(*tasks)
-
-        print(f"Final: {success} words analyzed")
-        return success
+            jieba.add_word(w)
     
     async def analyze_given_msgs(self, messages: List[Message], concurrency: int = 10) -> int:
         """
@@ -143,14 +94,16 @@ class MsgAnalyzer:
 
         analyzed: bool = MsgTopic.select().where(MsgTopic.message == msg).exists() or MsgWord.select().where(MsgWord.message == msg).exists()
         if not analyzed:
-            words: List[str] = await self.segment_words(msg)
+            words: List[str] = self.segment_words_jieba(str(msg.text))
+            print(f"Words segmented for message {msg.message_id}: {words}")
             for word in words:
                 if len(word)>1:
                     word_obj: Word = Word.get_or_create(name=word, group=msg.group)[0]
                     MsgWord.create(message=msg, word=word_obj)
             
 
-            topics: List[str] = await self.extract_topics(msg)
+            topics: List[str] = await self.extract_topics(str(msg.text))
+            print(f"Topics extracted for message {msg.message_id}: {topics}")
             for topic in topics:
                 topic_obj: Topic = Topic.get_or_create(name=topic, group=msg.group)[0]
                 MsgTopic.create(message=msg, topic=topic_obj)
@@ -161,10 +114,16 @@ class MsgAnalyzer:
             return [],[]
         return [],[]
 
-    async def extract_topics(self, msg: Message) -> List[str]:
+    async def extract_topics(self, text: str) -> List[str]:
         saved_topics: List[MsgTopic] = MsgTopic.select()
-        prompt: str = f"这是已知的话题列表：\n{saved_topics}\n\n这是一条新文本：\n{msg.text}\n\n请分析这条文本涉及的话题（至多5个），优先从话题列表中选取，列表中没有的话题可以补充，将补充的话题输出为用空格分割的字符串，例如：\n生活 游戏 你居垦 Frank 竹林\n\n禁止输出多余的内容"
+        print(f"有{len(saved_topics)}个现成话题")
+        prompt: str = f"""
+        这是现成的话题列表：\n{saved_topics}\n
+        接下来我需要你分析一段文本涉及的话题（至多5个，意思互不重叠），优先从话题列表中选取，列表中没有的话题可以补充，将所有分析出的话题输出为用空格分割的字符串，禁止输出多余的内容
+        以下是文本原文：\n{text}
+        """
         response: str|None = await ai_client.summary(prompt)
+        print(f"Topic extraction response: {response}")
         if response is None or len(response) > 30:
             return []
         try:
@@ -172,11 +131,19 @@ class MsgAnalyzer:
         except:
             print(f"Topic extraction error: {response}")
             return []
-        print(f"Topics extracted for message {msg.message_id}: {topics}")
         return topics
 
-    async def segment_words(self, msg: Message) -> List[str]:
-        prompt: str = f"这是一条新文本：\n{msg.text}\n\n请将这个文本进行分词，能组成多于一个字的词的尽量组成多字词。分词结果不能包含标点、空格等特殊字符（但可以参考它们来进行分词）。一些已知的不应拆开的词有：{reserved_words}。一些应当抛弃的词有：{banned_words}以及常见标点。将分割出的词们输出为用空格分割的字符串，例如：\n我 是 你居垦 的 爷爷\n\n禁止输出多余的内容"
+    async def segment_words_ai(self, text: str) -> List[str]:
+        prompt: str = f"""请进行文本分词工作，能组成多于一个字的词的尽量组成多字词。
+        分词结果不能包含标点、空格等特殊字符（但可以参考它们来进行分词）。
+        以下词不应拆开：{reserved_words}。
+        分割成词后，需要抛弃其中一些词，其余的保留。
+        以下词应当抛弃的词有：{banned_words}以及常见标点。
+        将分割出的词们输出为用空格分割的字符串。
+        如果剩余的词已经没有了，则直接返回空字符串。
+        禁止输出多余的内容。
+        规则讲述完毕。以下是文本原文：\n“{text}”
+        """
         response: str|None = await ai_client.summary(prompt)
         if response is None or len(response) > 30:
             return []
@@ -185,9 +152,24 @@ class MsgAnalyzer:
         except:
             print(f"Word segmentation error: {response}")
             return []
-        print(f"Words segmented for message {msg.message_id}: {words}")
         return words
 
+    def segment_words_jieba(self, text: str) -> List[str]:
+        # 1. 给保留词两端加空格
+        for w in reserved_words:
+            text = text.replace(w, f" {w} ")
+        # 2. 将屏蔽词替换为空格
+        for r in banned_regex:
+            text = re.sub(r, ' ', text)
+        # 3. 切词
+        words = jieba.cut(text)
+        # 4. 去除标点
+        words = [re.sub(r'[^\w\s]', '', w) for w in words]
+        # 5. 去除空白词
+        words = [w for w in words if w.strip()]
+        # 6. 去除屏蔽词
+        words = [w for w in words if w not in banned_words]
+        return words
 
     def get_group_comprehensive_stats(self, group: Group, daynum: int, n: int = 5) -> Dict[str, Any]:
         # 1. 时间边界
@@ -340,7 +322,9 @@ class MsgAnalyzer:
         stats_dict = self.get_group_comprehensive_stats(group, daynum, n)
         
         # 4. 转化为字符串
-        return self.format_stats_report(stats_dict)
+        ans = self.format_stats_report(stats_dict)
+        print(ans)
+        return ans
 
 
 
