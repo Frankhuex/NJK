@@ -231,20 +231,7 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
             elif pindex==njk_index: # 提及你居垦时说话
-                message_count: int = random.randint(10,30)
-                # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-                messages: List[str] = self.get_history_pg(group,message_count)
-                prompt_with_history: str = self.build_prompt_with_history(messages, prompts[pindex])
-                result: str|None = None
-                try_count = 0
-                while result is None or any(result in m for m in messages):
-                    try_count += 1
-                    result = await ai_client.summary(prompt_with_history, temperature=random.uniform(0.8,0.9))
-                    print(f"第{try_count}次组织语言：{result}")
-                print(f"试了{try_count}次才不复读：{result}")
-
-                response = self.build_response(event, result)
-                print(f"已完成操作{pindex}: {patterns[pindex]}")
+                response = await self.njk_say(event, group)
             
             elif pindex==report_index:
                 daynum: int = int(match.group(1))
@@ -301,19 +288,8 @@ class MsgHandler:
 
             return [(response, (pindex==njk_index))]
 
-
-        # elif random.uniform(0,1)<0.02:
-        #     response = self.build_response(event, ".总结 50")
-        #     print(f"已随机叫教授总结")
-        #     return response
-
         elif random.uniform(0,1)<0.08:
-            message_count: int = random.randint(10,30)
-            # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-            messages: List[str] = self.get_history_pg(group,message_count)
-            result: str|None = await ai_client.summary(self.build_prompt_with_history(messages,prompts[len(prompts)-1]))
-
-            response = self.build_response(event, result)
+            response = await self.njk_say(event, group)
             print(f"已随机说话")
             return [(response, True)]
         
@@ -349,6 +325,22 @@ class MsgHandler:
         print(history)
         return history
 
+    async def njk_say(self, event: Dict[str,Any], group: Group) -> Dict[str, Any]:
+        message_count: int = random.randint(10,30)
+        # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+        messages: List[str] = self.get_history_pg(group,message_count)
+        prompt_with_history: str = self.build_prompt_with_history(messages, prompts[njk_index])
+        result: str|None = None
+        try_count = 0
+        while result is None or any(result in m for m in messages):
+            try_count += 1
+            result = await ai_client.summary(prompt_with_history, temperature=random.uniform(0.8,0.9))
+            print(f"第{try_count}次组织语言：{result}")
+        print(f"试了{try_count}次才不复读：{result}")
+
+        response = self.build_response(event, result)
+        print(f"已完成操作{njk_index}: {patterns[njk_index]}")
+        return response
 
     def build_response(self, event: Dict[str,Any], message: str|None) -> Dict[str,Any]:
         response = {
