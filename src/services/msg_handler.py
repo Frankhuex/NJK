@@ -172,7 +172,7 @@ prompts: List[str] = [
         接下来看下面的聊天记录，顺着聊天的内容、氛围、时间节点，说一句贴合的话
         聊天的语气要像现实里的群友，平衡好轻松和正经的感觉，句子不用加句末标点，尽量简短自然，融入对话就行
         如果聊天记录里有人在问你问题，直接自然回应就好
-        只输出你要说的那句话，不要加说话人、冒号，也不要有其他多余的内容
+        只输出你要说的那句话，不要加说话人、冒号，也不要有其他多余的内容，注意一定要贴合最新消息的语境
     """
 
     
@@ -221,11 +221,27 @@ class MsgHandler:
         # 不是elif
         if match:
             result: str|None = None
-            if pindex<=njk_index:
-                message_count: int = int(match.group(1)) if pindex<njk_index else random.randint(10,30)
+            if pindex<njk_index: # normal command
+                message_count: int = int(match.group(1))
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 messages: List[str] = self.get_history_pg(group,message_count)
                 result = await ai_client.summary(self.build_prompt_with_history(messages, prompts[pindex]))
+
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+            elif pindex==njk_index: # 提及你居垦时说话
+                message_count: int = random.randint(10,30)
+                # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+                messages: List[str] = self.get_history_pg(group,message_count)
+                prompt_with_history: str = self.build_prompt_with_history(messages, prompts[pindex])
+                result: str|None = None
+                try_count = 0
+                while result is None or any(result in m for m in messages):
+                    try_count += 1
+                    result = await ai_client.summary(prompt_with_history, temperature=random.uniform(0.8,0.9))
+                    print(f"第{try_count}次组织语言：{result}")
+                print(f"试了{try_count}次才不复读：{result}")
 
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")

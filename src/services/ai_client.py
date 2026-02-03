@@ -4,6 +4,7 @@ import os
 from typing import Any, List, Dict, Pattern, Tuple
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
 from openai import OpenAI
+import random
 
 load_dotenv()
 api_key = os.getenv('API_KEY')
@@ -20,22 +21,36 @@ class AIClient:
         # 关键修改1：不再提前获取loop，只初始化线程池（全局唯一）
         self.executor = ThreadPoolExecutor(max_workers=5)  # 控制最大并发数
 
-    async def summary(self, prompt: str) -> str|None:
+    async def summary(self, prompt: str, temperature: float = -1) -> str|None:
         # 定义同步执行的AI调用函数
         def _sync_summary():
             try:
+                print(f"temperature: {temperature}")
                 if not model_name:
                     raise ValueError("未设置AI模型")
-                response = self.client.chat.completions.create(
-                    model = model_name,
-                    messages=[
-                        {
-                            "role": "user", 
-                            "content": prompt
-                        }
-                    ],
-                    stream=False
-                )
+                if temperature < 0:
+                    response = self.client.chat.completions.create(
+                        model = model_name,
+                        messages=[
+                            {
+                                "role": "user", 
+                                "content": prompt
+                            }
+                        ],
+                        stream=False,
+                    )
+                else:
+                    response = self.client.chat.completions.create(
+                        model = model_name,
+                        messages=[
+                            {
+                                "role": "user", 
+                                "content": prompt
+                            }
+                        ],
+                        stream=False,
+                        temperature=temperature
+                    )
                 return response.choices[0].message.content
             except Exception as e:
                 print(f"AI调用出错: {str(e)}")
