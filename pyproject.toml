@@ -12,5 +12,6 @@ dependencies = [
     "pymongo>=4.15.5",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
+    "types-peewee>=3.19.0.20260109",
     "websockets>=15.0.1",
 ]

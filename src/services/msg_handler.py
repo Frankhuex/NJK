@@ -1,5 +1,6 @@
 import asyncio
 import json
+from peewee import CharField, IntegerField, BooleanField, DateTimeField, ForeignKeyField, TextField
 
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
 from datetime import datetime
@@ -25,22 +26,23 @@ from services.msg_analyzer import msg_analyzer
 
 
 patterns: List[str] = [
-    r"^ *\.概括 *(\d+) *$",
+    r"^ *\.概括 *(\d+) *$", #0
     r"^ *\.总结 *(\d+) *$",
     r"^ *\.俳句 *(\d+) *$",
     r"^ *\.无只因 *(\d+) *$",
     r"^ *\.最 *(\d+) *$",
     r"^ *\.vs *(\d+) *$",
     r"^ *\.ccb *(\d+) *$",
-    r"^ *\.ai *(\d+) *$",
-    r"^ *\.xmas *(\d+) *$",
+    r"^ *\.xmas *(\d+) *$", #7
 
-    r"你居垦|\[CQ:at,qq=1558109748\]",
-    r"^ *\.报告 *(\d+) *$",
-    r"^ *\.help *$",
-    
+    r"^ *\.ai *(\d+) *$", #8
+    r"你居垦|\[CQ:at,qq=1558109748\]", #9
+    r"^ *\.ai *c *$", #10
+    r"^ *\.报告 *(\d+) *$", #11
+    r"^ *\.help *$", #12
+    r"^ *\.help *bbh *$", #13
 
-    r"^ *\.bbh *$",
+    r"^ *\.bbh *$", #14
     r"^ *\.bbh *(\d+) *$",
     r"^ *\.bbh *(\d+) +(\d+) *$",
     r"^ *\.bbh *(\d+) +(\d+)-(\d+) *$",
@@ -50,17 +52,24 @@ patterns: List[str] = [
     
 ]
 
+ai_index=8
 njk_index=9
-report_index=10
-help_index=11
+aic_index=10
+report_index=11
+help_index=12
+help_bbh_index=13
+bbh_index=14
 
 
 
-helps: str = """.概括 .总结 .俳句 .无只因 .最 .vs .ccb .ai .xmas \n后面均需要接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复
-
+help_str: str = """.概括 .总结 .俳句 .无只因 .最 .vs .ccb .xmas \n后面均需要接数字，表示结合的前面消息条数，不包含指令消息\n消息中含有你居垦三个字就会触发自动回复
 .报告 后面需要接数字，表示报告查询的天数
+.help bbh 查看bbh模块讲解
+.ai 后面接数字，表示结合的前面消息条数，不包含指令消息，正常AI助手式回答
+.aic 会继续上一个.ai的话题，不包含指令消息。（总共读取=上一个.ai读取的消息+之后的全部消息）
+"""
 
-bbh模块讲解：
+help_bbh_str: str = """bbh模块讲解：
 .bbh  
 含义：列出所有书籍
 
@@ -77,7 +86,6 @@ bbh模块讲解：
 
 .bbh 书籍ID ai  
 含义：让AI在书末尾接龙一段，如.bbh 36 ai
-
 """
 
 prompts: List[str] = [
@@ -158,13 +166,14 @@ prompts: List[str] = [
         现请你阅读以下内容并分析出主旨，用ccb句式形象、准确、精辟地概括主旨。
         请只输出符合ccb句式的一句文本，不要用markdown，请输出纯文本。
     """,
-
-    """你是一个AI助手，请阅读以下聊天内容，分析并根据用户需求给予回答。一般最关键的用户需求往往出现在时间最新的一条消息，前面的消息可用于信息参考。请按用户要求回答。注意：必须输出纯文本！禁止用markdown或任何格式语言比如粗体等！""",
-    
     """
     你是一个穿着圣诞服的可爱萝莉，名叫你居垦，请你以一个圣诞萝莉的口吻，概括这些聊天内容，并适当加工，将概括融入圣诞节元素。总长度不超过250字，输出纯文本，不要有任何markdown格式。
     """,
 
+
+
+
+    """你是一个AI助手，请阅读以下聊天内容，分析并根据用户需求给予回答。一般最关键的用户需求往往出现在时间最新的一条消息，前面的消息可用于信息参考。请按用户要求回答。注意：必须输出纯文本！禁止用markdown或任何格式语言比如粗体等！""",
 
     """
         你现在是真实的QQ群群友，名字是“你居垦”，只有你是这个身份，和你对话的人都不是
@@ -191,12 +200,15 @@ prompts: List[str] = [
 
 
 class MsgHandler:
+    def __init__(self):
+        self.grp_id_to_last_ai_time: dict[str,datetime] = {}
+
     async def handle_summary(self, event: Dict[str,Any]) -> List[Tuple[Dict[str,Any]|None,bool]]: # [(response, should_save)]
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
         message_id: int = event["message_id"]
 
-        group: Group = Group.get_or_none(group_id=group_id)
+        group: Group = Group.get_or_none(group_id=str(group_id))
         if not group:
             return [(None, False)]
 
@@ -218,21 +230,44 @@ class MsgHandler:
                     }, False))
                 return rsps
             
-        # 不是elif
+        # 不是elif，因为可以匹配到njk_index
         if match:
             result: str|None = None
-            if pindex<njk_index: # normal command
+            if pindex < ai_index: # normal command
                 message_count: int = int(match.group(1))
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-                messages: List[str] = self.get_history_pg(group,message_count)
+                messages: List[str] = self.get_history(group,message_count)
                 result = await ai_client.summary(self.build_prompt_with_history(messages, prompts[pindex]))
 
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
+            elif pindex == ai_index:
+                message_count: int = int(match.group(1))
+                # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
+                msgs: list[Message] = self.get_history_original_msgs(group, message_count)
+                msg_strs: list[str] = [str(msg) for msg in msgs]
+                result = await ai_client.summary(self.build_prompt_with_history(msg_strs, prompts[ai_index]))
+
+                response = self.build_response(event, f"[CQ:reply,id={msgs[0].message_id}]{result}")
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+                self.grp_id_to_last_ai_time[str(group_id)] = msgs[0].time # type: ignore
+
             elif pindex==njk_index: # 提及你居垦时说话
                 response = await self.njk_say(event, group)
             
+            elif pindex == aic_index:
+                last_ai_time: datetime|None = self.grp_id_to_last_ai_time.get(str(group_id), None)
+                if last_ai_time is None:
+                    result = "请先发起一次「.ai后接数字」"
+                else:
+                    msgs: List[Message] = self.get_history_original_msgs_with_start_time(group, last_ai_time)
+                    msg_strs: list[str] = [str(msg) for msg in msgs]
+                    result = await ai_client.summary(self.build_prompt_with_history(msg_strs, prompts[ai_index]))
+
+                response = self.build_response(event, f"[CQ:reply,id={msgs[0].message_id}]{result}")
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
             elif pindex==report_index:
                 daynum: int = int(match.group(1))
                 result = await msg_analyzer.get_group_report_with_auto_analyze(group,daynum,10)
@@ -240,29 +275,34 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
             elif pindex==help_index:
-                result = helps
+                result = help_str
+                response = self.build_response(event, result)
+                print(f"已完成操作{pindex}: {patterns[pindex]}")
+
+            elif pindex==help_bbh_index:
+                result = help_bbh_str
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
             
-            elif pindex==help_index+1: #plaza
+            elif pindex==bbh_index: #plaza
                 result = await bbh_client.plaza_cmd()
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
             
-            elif pindex==help_index+2: #book
+            elif pindex==bbh_index+1: #book
                 book_id = int(match.group(1))
                 result = await bbh_client.book_cmd(book_id)
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
             
-            elif pindex==help_index+3: #paragraph
+            elif pindex==bbh_index+2: #paragraph
                 book_id = int(match.group(1))
                 para_index = int(match.group(2))
                 result = await bbh_client.paragraph_cmd(book_id, para_index, para_index)
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
          
-            elif pindex==help_index+4: #paragraphs
+            elif pindex==bbh_index+3: #paragraphs
                 book_id = int(match.group(1))
                 para_left_index = int(match.group(2))
                 para_right_index = int(match.group(3))
@@ -271,7 +311,7 @@ class MsgHandler:
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
             
-            elif pindex==help_index+5: #add paragraph
+            elif pindex==bbh_index+4: #add paragraph
                 book_id: int = int(match.group(1))
                 author: str = match.group(2)
                 content: str = match.group(3)
@@ -279,14 +319,14 @@ class MsgHandler:
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
-            elif pindex==help_index+6: #ai
+            elif pindex==bbh_index+5: #ai
                 book_id: int = int(match.group(1))
                 result = await bbh_client.ai_writing_cmd(book_id)
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
 
 
-            return [(response, (pindex==njk_index))]
+            return [(response, (pindex==ai_index or pindex==njk_index or pindex==aic_index))]
 
         elif random.uniform(0,1)<0.08:
             response = await self.njk_say(event, group)
@@ -307,28 +347,38 @@ class MsgHandler:
                 return match, index
         return None, -1
 
-    
-    # def get_history(self, collection: collection.Collection, msgCount: int)-> List[Dict[str,Any]]:
-    #     messages: List[Dict[str, Any]] = list(collection.find({}, {"_id": 0}).sort("时间", -1).limit(msgCount))
-    #     messages.reverse()
-    #     for msg in messages:
-    #         msg['时间'] = msg['时间'].strftime("%m-%d %H:%M")
-    #     return messages
+
     
     def build_prompt_with_history(self, msg: Any, prompt: str) -> str:
         return f"{prompt}\n\n聊天内容：\n\n{msg}"
 
-    def get_history_pg(self, group: Group, msgCount:int)-> List[str]:
+    def get_history_original_msgs(self, group: Group, msgCount:int)-> List[Message]:
         messages: List[Message] = list(Message.select().where(Message.group==group).order_by(Message.time.desc()).limit(msgCount))
         messages.reverse()
+        return messages
+    
+    def get_history(self, group: Group, msgCount:int)-> List[str]:
+        messages: List[Message] = self.get_history_original_msgs(group, msgCount)
         history = [str(msg) for msg in messages]
         print(history)
         return history
+    
+    def get_history_with_start_time(self, group: Group, start_time: datetime) -> List[str]:
+        messages: List[Message] = list(Message.select().where(Message.group==group, Message.time>=start_time).order_by(Message.time.asc()))
+        history = [str(msg) for msg in messages]
+        print(history)
+        print(f"aic历史记录从{start_time}开始")
+        return history
+    
+    def get_history_original_msgs_with_start_time(self, group: Group, start_time: datetime) -> List[Message]:
+        messages: List[Message] = list(Message.select().where(Message.group==group, Message.time>=start_time).order_by(Message.time.asc()))
+        print(f"aic历史记录从{start_time}开始")
+        return messages
 
     async def njk_say(self, event: Dict[str,Any], group: Group) -> Dict[str, Any]:
         message_count: int = random.randint(10,30)
         # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
-        messages: List[str] = self.get_history_pg(group,message_count)
+        messages: List[str] = self.get_history(group,message_count)
         prompt_with_history: str = self.build_prompt_with_history(messages, prompts[njk_index])
         result: str|None = None
         try_count = 0
