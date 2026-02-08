@@ -141,6 +141,7 @@ async def save_self_msg_pg(response: Dict[str,Any], response_back: Dict[str,Any]
 
 async def main():
     async with serve(handle_websocket, "0.0.0.0", 11004):
+        print(f"WebSocket服务器已启动，等待连接...端口11004")
         await asyncio.Future()
 
 if __name__ == "__main__":
