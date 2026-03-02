@@ -9,7 +9,7 @@ from models.msg_topic import MsgTopic
 from models.msg_word import MsgWord
 from models.at_user import AtUser
 from datetime import datetime
-from services.ai_client import ai_client
+from services.ai_client import ai_client, ai_client_free
 import re
 import jieba
 from peewee import fn
@@ -122,7 +122,7 @@ class MsgAnalyzer:
         接下来我需要你分析一段文本涉及的话题（至多5个，意思互不重叠），优先从话题列表中选取，列表中没有的话题可以补充，将所有分析出的话题输出为用空格分割的字符串，禁止输出多余的内容
         以下是文本原文：\n{text}
         """
-        response: str|None = await ai_client.summary(prompt)
+        response: str|None = await ai_client_free.summary(prompt, text)
         print(f"Topic extraction response: {response}")
         if response is None or len(response) > 30:
             return []
@@ -142,9 +142,9 @@ class MsgAnalyzer:
         将分割出的词们输出为用空格分割的字符串。
         如果剩余的词已经没有了，则直接返回空字符串。
         禁止输出多余的内容。
-        规则讲述完毕。以下是文本原文：\n“{text}”
+        规则讲述完毕。以下是文本原文：
         """
-        response: str|None = await ai_client.summary(prompt)
+        response: str|None = await ai_client.summary(prompt, text)
         if response is None or len(response) > 30:
             return []
         try:

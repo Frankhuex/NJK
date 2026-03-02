@@ -66,10 +66,10 @@ class BBHClient:
         para_contents = [(para['author'],para['content']) for para in paras]
 
         prompt = f"""
-        这是一篇正在编写中的小说的每一个段落：{para_contents}\n其中author字段含义请自行视情况判断，有时候为作者，有时候为段标题，content字段则是段落正文内容。
-        现在请你理解前文，然后往下接一段。输出格式要求为json格式，一个字段\"author\"，一个字段\"content\"，字段值必须为字符串。
+        你将会接收到一篇正在编写中的小说的每一个段落。其中author字段含义请自行视情况判断，有时候为作者，有时候为段标题，content字段则是段落正文内容。
+        现在请你理解前文，然后往下接一段。输出格式要求为json格式，一个字段\"author\"，一个字段\"content\"，字段值必须为字符串。接下来就是你将接收到的段落对象。
         """
-        ai_response = await ai_client.summary(prompt)
+        ai_response = await ai_client.summary(prompt, str(para_contents))
         if not ai_response:
             return "AI调用失败"
         print(ai_response)

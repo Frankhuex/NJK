@@ -237,7 +237,7 @@ class MsgHandler:
                 message_count: int = int(match.group(1))
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 messages: List[str] = self.get_history(group,message_count)
-                result = await ai_client.summary(self.build_prompt_with_history(messages, prompts[pindex]))
+                result = await ai_client.summary(prompts[pindex], str(messages))
 
                 response = self.build_response(event, result)
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
@@ -247,7 +247,7 @@ class MsgHandler:
                 # messages: List[Dict[str, Any]] = self.get_history(collection, message_count)
                 msgs: list[Message] = self.get_history_original_msgs(group, message_count)
                 msg_strs: list[str] = [str(msg) for msg in msgs]
-                result = await ai_client.summary(self.build_prompt_with_history(msg_strs, prompts[ai_index]))
+                result = await ai_client.summary(prompts[ai_index], str(msg_strs))
 
                 response = self.build_response(event, f"[CQ:reply,id={msgs[0].message_id}]{result}")
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
@@ -263,7 +263,7 @@ class MsgHandler:
                 else:
                     msgs: List[Message] = self.get_history_original_msgs_with_start_time(group, last_ai_time)
                     msg_strs: list[str] = [str(msg) for msg in msgs]
-                    result = await ai_client.summary(self.build_prompt_with_history(msg_strs, prompts[ai_index]))
+                    result = await ai_client.summary(prompts[ai_index], str(msg_strs))
 
                 response = self.build_response(event, f"[CQ:reply,id={msgs[0].message_id}]{result}")
                 print(f"已完成操作{pindex}: {patterns[pindex]}")
@@ -384,7 +384,7 @@ class MsgHandler:
         try_count = 0
         while result is None or any(result in m for m in messages):
             try_count += 1
-            result = await ai_client.summary(prompt_with_history, temperature=random.uniform(0.8,0.9))
+            result = await ai_client.summary(prompts[njk_index], str(messages), temperature=random.uniform(0.8,0.9))
             print(f"第{try_count}次组织语言：{result}")
         print(f"试了{try_count}次才不复读：{result}")
 
