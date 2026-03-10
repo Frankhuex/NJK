@@ -9,29 +9,37 @@ import random
 load_dotenv()
 api_key = os.getenv('API_KEY')
 base_url = os.getenv('BASE_URL')
-model_name = os.getenv('MODEL_NAME')
-print(api_key is not None, base_url is not None, model_name is not None)
+paid_model_name = os.getenv('MODEL_NAME')
+free_model_name = os.getenv('FREE_MODEL_NAME')
+print(api_key is not None, base_url is not None, paid_model_name is not None)
+
 
 class AIClient:
-    def __init__(self):
+    def __init__(self, model_name: str|None):
         self.client: OpenAI = OpenAI(
             api_key=api_key,
             base_url=base_url
         )
         # 关键修改1：不再提前获取loop，只初始化线程池（全局唯一）
         self.executor = ThreadPoolExecutor(max_workers=5)  # 控制最大并发数
+        self.model_name = model_name
 
-    async def summary(self, prompt: str, temperature: float = -1) -> str|None:
+    async def summary(self, sys_prompt: Any, prompt: Any, temperature: float = -1) -> str|None:
+        print(f"model_name: {self.model_name}")
         # 定义同步执行的AI调用函数
         def _sync_summary():
             try:
                 print(f"temperature: {temperature}")
-                if not model_name:
+                if not self.model_name:
                     raise ValueError("未设置AI模型")
                 if temperature < 0:
                     response = self.client.chat.completions.create(
-                        model = model_name,
+                        model = self.model_name,
                         messages=[
+                            {
+                                "role": "system", 
+                                "content": sys_prompt
+                            },
                             {
                                 "role": "user", 
                                 "content": prompt
@@ -41,8 +49,12 @@ class AIClient:
                     )
                 else:
                     response = self.client.chat.completions.create(
-                        model = model_name,
+                        model = self.model_name,
                         messages=[
+                            {
+                                "role": "system", 
+                                "content": sys_prompt
+                            },
                             {
                                 "role": "user", 
                                 "content": prompt
@@ -64,4 +76,5 @@ class AIClient:
 
 
 
-ai_client = AIClient()
+ai_client = AIClient(paid_model_name)
+ai_client_free = AIClient(free_model_name)

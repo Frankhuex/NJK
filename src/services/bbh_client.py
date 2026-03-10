@@ -31,7 +31,7 @@ class BBHClient:
 
         paragraphs = await self.get_paragraphs_by_book_id(book_id)
         if paragraphs:
-            paras_str = self.paras_to_str(paragraphs)
+            paras_str = self.paras_to_str(paragraphs[1:-1])
         else:
             paras_str = "获取段落失败"
         return book_str + "\n" + "-"*10 + "\n" + paras_str
@@ -40,6 +40,7 @@ class BBHClient:
         paras = await self.get_paragraphs_by_book_id(book_id)
         if not paras:
             return "获取段落失败"
+        paras = paras[1:-1]
         if para_left_index<1 or para_left_index>len(paras) or para_right_index<1 or para_right_index>len(paras) or para_left_index>para_right_index:
             return f"段落索引错误"
         para_contents = [(para['author'],para['content']) for para in paras][para_left_index-1:para_right_index]
@@ -47,29 +48,29 @@ class BBHClient:
         return para_str
     
     async def add_paragraph_cmd(self, book_id: int, author: str, content: str)->str:
-        paras = await self.get_paragraphs_by_book_id(book_id)
+        paras = await self.get_paragraphs_by_book_id(book_id) # include start and end para id
         if not paras:
             return "获取前段落失败"
-        prev_para_id = paras[-1]['id']
+        prev_para_id = paras[-2]['id']
         new_para = await self.add_new_paragraph(prev_para_id, author, content)
         if not new_para:
             return "接龙失败"
-        return self.paras_to_str(paras) + f"\n接龙成功: \n{len(paras)+1}. {new_para['author']}"
+        return self.paras_to_str(paras[1:-1]) + f"\n接龙成功: \n{len(paras)-2+1}. {new_para['author']}"
 
     
     
     async def ai_writing_cmd(self, book_id: int) -> str:
-        paras = await self.get_paragraphs_by_book_id(book_id)
+        paras = await self.get_paragraphs_by_book_id(book_id) # include start and end para id
         if not paras:
             return "获取前段落失败"
-        prev_para_id = paras[-1]['id']
+        prev_para_id = paras[-2]['id']
         para_contents = [(para['author'],para['content']) for para in paras]
 
         prompt = f"""
-        这是一篇正在编写中的小说的每一个段落：{para_contents}\n其中author字段含义请自行视情况判断，有时候为作者，有时候为段标题，content字段则是段落正文内容。
-        现在请你理解前文，然后往下接一段。输出格式要求为json格式，一个字段\"author\"，一个字段\"content\"，字段值必须为字符串。
+        你将会接收到一篇正在编写中的小说的每一个段落。其中author字段含义请自行视情况判断，有时候为作者，有时候为段标题，content字段则是段落正文内容。
+        现在请你理解前文，然后往下接一段。输出格式要求为json格式，一个字段\"author\"，一个字段\"content\"，字段值必须为字符串。接下来就是你将接收到的段落对象。
         """
-        ai_response = await ai_client.summary(prompt)
+        ai_response = await ai_client.summary(prompt, str(para_contents))
         if not ai_response:
             return "AI调用失败"
         print(ai_response)
@@ -87,7 +88,7 @@ class BBHClient:
         new_para = await self.add_new_paragraph(prev_para_id, author, content)
         if not new_para:
             return "接龙失败"
-        return self.paras_to_str(paras) + f"\n接龙成功: \n{len(paras)+1}. {new_para['author']}"
+        return self.paras_to_str(paras[1:-1]) + f"\n接龙成功: \n{len(paras)-2+1}. {new_para['author']}"
         
 
 
@@ -112,8 +113,8 @@ class BBHClient:
         if not response['success']:
             print(f"获取段落失败: {response['errorMsg']}")
             return None
-        paragraphs: List[Dict[str,Any]] = response["data"]
-        return paragraphs[1:-1]
+        return response["data"] # includes start and end para id
+        
     
     async def add_new_paragraph(self, prev_para_id: int, author: str, content: str) -> Dict[str,Any]|None:
         url_add_para = bbh_url + "paragraph"
@@ -124,8 +125,8 @@ class BBHClient:
             return None
         return response['data']
     
-    def paras_to_str(self, paras: List[Dict[str,Any]]) -> str:
-        return "\n".join([str(i+1) + ". " + para['author'] for i,para in enumerate(paras)])
+    def paras_to_str(self, paras: List[Dict[str,Any]]) -> str: # paras without start and end para
+        return "\n".join([f"{str(i+1)}. {para['author'] if para['author'] else ""}" for i,para in enumerate(paras)])
 
     
     
