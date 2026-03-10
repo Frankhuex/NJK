@@ -4,7 +4,7 @@ from peewee import CharField, IntegerField, BooleanField, DateTimeField, Foreign
 
 from concurrent.futures import ThreadPoolExecutor  # 新增：提前导入线程池
 from datetime import datetime
-
+from websockets.asyncio.server import ServerConnection
 import re
 from typing import Any, List, Dict, Pattern, Tuple
 # import api_key
@@ -203,7 +203,7 @@ class MsgHandler:
     def __init__(self):
         self.grp_id_to_last_ai_time: dict[str,datetime] = {}
 
-    async def handle_summary(self, event: Dict[str,Any]) -> List[Tuple[Dict[str,Any]|None,bool]]: # [(response, should_save)]
+    async def handle_summary(self, event: Dict[str,Any],  websocket: ServerConnection) -> List[Tuple[Dict[str,Any]|None,bool]]: # [(response, should_save)]
         raw_message: str = event["raw_message"]
         group_id: int = event["group_id"]
         message_id: int = event["message_id"]
@@ -220,14 +220,35 @@ class MsgHandler:
             duplicates = await self.save_msg_pg_and_check_img(event)
             rsps: List[Tuple[Dict[str,Any]|None,bool]] = []
             if len(duplicates)>0:
-                for duplicate_count, duplicate_msg_id in duplicates:
+                active_tasks = set()
+                for duplicate_count, duplicate_img in duplicates:
+                    if duplicate_count<=0 or not duplicate_img:
+                        continue
+                    duplicate_msg: Message = duplicate_img.message # type: ignore
+                    duplicate_msg_id: str = str(duplicate_msg.message_id)
+                    send_time = duplicate_msg.time
+                    sender_name = str(duplicate_msg.card if duplicate_msg.card else (duplicate_msg.sender.nickname if duplicate_msg.sender else "Unknown User"))
+
                     rsps.append(({
                         "action": "send_group_msg",
                         "params": {
                             "group_id": group_id,
-                            "message": f"[CQ:reply,id={duplicate_msg_id}]🇫🇷{duplicate_count}遍了。"
+                            "message": f"[CQ:reply,id={duplicate_msg_id}]🇫🇷{duplicate_count}遍了。{sender_name}在{send_time}就🇫🇷了。"
                         }
                     }, False))
+
+                    msg_to_send = {
+                        "action": "get_msg",
+                        "params": {
+                            "message_id": int(duplicate_msg_id)
+                        }
+                    }
+                    task = asyncio.create_task(
+                        websocket.send(json.dumps(msg_to_send)))
+                    task.add_done_callback(active_tasks.discard)
+                    print(f"已发送获取消息任务：{msg_to_send}")
+                    active_tasks.add(task)
+                await asyncio.gather(*active_tasks)
                 return rsps
             
         # 不是elif，因为可以匹配到njk_index
@@ -417,7 +438,7 @@ class MsgHandler:
     #     collection.insert_one(new_message)
     #     print("已存储消息")
 
-    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> List[Tuple[int, str]]:
+    async def save_msg_pg_and_check_img(self, event: Dict[str,Any]) -> List[Tuple[int, Image|None]]:
         message_id = str(event["message_id"])
         time = datetime.fromtimestamp(event["time"])
         sender: User = User.get_or_create(
@@ -509,7 +530,7 @@ class MsgHandler:
             print(f"已储存@{u.nickname}到pg")
 
 
-        duplicates: List[Tuple[int, str]] = []
+        duplicates: List[Tuple[int, Image|None]] = []
         for url in imgurl_list:
             duplicate = img_handler.save_and_check_duplicate(url, message)
             if duplicate[0]>0:

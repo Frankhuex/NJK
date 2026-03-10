@@ -72,14 +72,14 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
         if event.get("post_type") == "message" and event.get("message_type") == "group":
             if event["group_id"] in group_list:
                 print(f"【处理LLM任务】 {client_address} - 消息ID: {event.get('message_id')}")
-                rsps: List[Tuple[Dict[str, Any]|None, bool]] = await msg_handler.handle_summary(event)
+                rsps: List[Tuple[Dict[str, Any]|None, bool]] = await msg_handler.handle_summary(event, websocket)
                 for response, should_save in rsps:
                     if response: 
+                        await self_response_queue.put(response)
                         await websocket.send(json.dumps(response))
-                        print(f"【发送LLM响应】 {client_address} - 消息ID: {event.get('message_id')}")
+                        print(f"【发送LLM响应】 {client_address} - 消息: {response}")
                         response["time"]=datetime.now()
                         response["should_save"] = should_save
-                        await self_response_queue.put(response)
                         print(f"未存储的自己消息数：{self_response_queue.qsize()}")
 
                 # response_img_detect: Dict[str,Any]|None = duplicate_detector.handle_detect(event, collections_img[event["group_id"]])
@@ -107,7 +107,7 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
 
         elif event.get("status")=="ok" and event.get("retcode")==0 and "data" in event and "message_id" in event["data"]:
             print(f"【处理自己消息存储】 {client_address} - 消息ID: {event['data']['message_id']}")
-            self_response: Dict[str,Any] = await self_response_queue.get()
+            self_response: Dict[str,Any] = self_response_queue.get_nowait()
             # await save_self_msg(self_response, event, mongodb[str(self_response["params"]["group_id"])])
             if self_response["should_save"]:
                 await save_self_msg_pg(self_response, event)
@@ -115,6 +115,8 @@ async def process_message(message: Data, websocket: ServerConnection, client_add
             else:
                 print(f"消息不保存: {self_response['params']['message']}")
             print(f"未存储的自己消息数：{self_response_queue.qsize()}")
+        else:
+            print(f"收到其他消息：{event}")
             
     except Exception as e:
         print(traceback.format_exc())

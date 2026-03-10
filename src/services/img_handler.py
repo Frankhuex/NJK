@@ -10,24 +10,24 @@ from models.img_whitelist import ImgWhitelist
 # 对于64位哈希，距离<=5通常意味着高度相似。你可以根据需要调整（0-10是合理范围）。
 hamming_threshold = 5
 class ImgHandler:
-    def save_and_check_duplicate(self, image_url: str, message: Message) -> Tuple[int, str]: # duplicate_count, duplicate_msg_id
+    def save_and_check_duplicate(self, image_url: str, message: Message) -> Tuple[int, Image|None]: # duplicate_count, duplicate_msg_id
         # 1. 下载图片
         image_data = self.download_image(image_url)
         if not image_data:
-            return False, ""
+            return False, None
 
         # 2. 计算感知哈希
         new_hash = self.calculate_phash(image_data)
         if not new_hash:
-            return False, ""
+            return False, None
 
         print(f"计算得到哈希: {new_hash}")
 
         image: Image = self.save_image(image_data, message)
 
         # 3. 检查是否重复
-        duplicate_count, earliest_msg_id = self.find_duplicate(image,hamming_threshold)
-        return duplicate_count, earliest_msg_id
+        duplicate_count, earliest_msg = self.find_duplicate(image,hamming_threshold)
+        return duplicate_count, earliest_msg
     
     def save_image(self, image_data: bytes, message: Message)->Image:
         return Image.create(
@@ -73,23 +73,23 @@ class ImgHandler:
             print(f"计算哈希失败: {e}")
             return None
     
-    def find_duplicate(self, image: Image, threshold: int = 5) -> Tuple[int, str]: # duplicate_count, duplicate_msg_id
+    def find_duplicate(self, image: Image, threshold: int = 5) -> Tuple[int, Image|None]: # duplicate_count, duplicate_msg_id
         """
         查找重复图片
         返回: (重复总数, 最早一次重复的 message_id)
         """
         # 前置条件检查
         if not all([image, image.image_hash, image.message, image.message.group]):
-            return 0, ""
+            return 0, None
 
         # 白名单检查
         if self._is_in_whitelist(str(image.image_hash)):
             print(f"忽略白名单内哈希: {image.image_hash}")
-            return 0, ""
+            return 0, None
 
         # 1. 获取同群组内的所有其他图片记录（关联查询 Message 表以获取时间）
         # 注意：这里排除掉当前图片本身
-        query = (Image
+        query: List[Image] = (Image
                  .select(Image, Message)
                  .join(Message)
                  .where(
@@ -97,7 +97,7 @@ class ImgHandler:
                      (Image.id != image.id)
                  ))
 
-        duplicates = []
+        duplicates: List[Image] = []
         target_hash_int = int(str(image.image_hash), 16)
 
         # 2. 遍历并计算汉明距离
@@ -106,20 +106,20 @@ class ImgHandler:
                 continue
             
             # 计算汉明距离
-            distance = bin(target_hash_int ^ int(img.image_hash, 16)).count("1")
+            distance = bin(target_hash_int ^ int(str(img.image_hash), 16)).count("1")
             
             if distance <= threshold:
                 duplicates.append(img)
 
-        # 3. 如果没有重复，返回 (0, "")
+        # 3. 如果没有重复，返回 (0, None)
         if not duplicates:
-            return 0, ""
+            return 0, None
 
         # 4. 找到最早的一条记录
         # 使用 min 函数，根据 message.time 进行排序
         earliest_img = min(duplicates, key=lambda x: x.message.time)
         
-        return len(duplicates), str(earliest_img.message.message_id)
+        return len(duplicates),earliest_img
 
     def _is_in_whitelist(self, image_hash: str) -> bool:
         """检查图片哈希是否在白名单中"""
